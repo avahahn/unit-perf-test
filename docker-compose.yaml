@@ -1,0 +1,21 @@
+services:
+  crust:
+    image: unit-debug
+    ports:
+      - '8383:8383'
+      - '80:80'
+    volumes:
+      - /tmp:/var/run/
+      - /home/ava/repositories/nginx/wasmapp:/www/
+
+  lgtm:
+    image: grafana/otel-lgtm
+    ports:
+      - '4317:4317'
+      - '4318:4318'
+      - '3000:3000'
+    volumes:
+      - grafana-storage:/var/lib/grafana
+
+volumes:
+  grafana-storage: { }
