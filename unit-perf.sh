@@ -1,65 +1,117 @@
 #!/bin/sh
-set -ex
-
-unitd --control 127.0.0.1:8080
+unitd --control 127.0.0.1:8080 --no-daemon 2>/dev/null &
+UNIT_BG_PID=$!
 sleep 3
 
+alias curl="curl -v --fail"
+alias wrk="/wrk/wrk -t22 -c880 -d30s"
+chmod "+x" /wrk/wrk
 echo "initial configuration"
 
-curl -X PUT 127.0.0.1/routes -d '[
-    {
-        "match": {
-            "headers": {
-                "accept": "*text/html*"
-            }
-        },
-        "action": {
-            "share": "/usr/share/unit/welcome/welcome.html"
+curl -X PUT 127.0.0.1:8080/config -d '{
+    "listeners": {
+        "*:80": {
+            "pass": "routes"
         }
     },
-    {
-        "action": {
-            "share": "/usr/share/unit/welcome/welcome.md"
+    "routes": [
+        {
+            "match": {
+                "headers": {
+                    "accept": "*text/html*"
+                }
+            },
+            "action": {
+                "share": "/usr/share/unit/welcome/welcome.html"
+            }
+        },
+        {
+            "action": {
+                "share": "/usr/share/unit/welcome/welcome.md"
+            }
         }
-    }
-]'
-
-
-curl -X PUT 127.0.0.1/listeners -d '{
-    "*:80": {
-        "pass": "routes"
-    }
+    ]
 }'
 
-if [ ! curl 127.0.0.1 ]; then
-    echo "failed initial curl"
-    exit 1 
-fi
+sleep 3
+echo "sleeping for 60s to wait for grafana to rise"
+sleep 60
 
 echo "configuring tracer"
 
-curl -X PUT 127.0.0.1/settings/telemetry -d '{
-    "batch_size": 10,
-    "endpoint": "http://lgtm:4318/v1/traces",
-    "protocol": "http"
+curl -X PUT 127.0.0.1:8080/config -d '{
+    "settings": {
+        "telemetry": {
+            "batch_size": 20,
+            "endpoint": "http://lgtm:4318/v1/traces",
+            "protocol": "http",
+            "sampling_ratio": 1
+        }
+    },
+    "listeners": {
+        "*:80": {
+            "pass": "routes"
+        }
+    },
+    "routes": [
+        {
+            "match": {
+                "headers": {
+                    "accept": "*text/html*"
+                }
+            },
+            "action": {
+                "share": "/usr/share/unit/welcome/welcome.html"
+            }
+        },
+        {
+            "action": {
+                "share": "/usr/share/unit/welcome/welcome.md"
+            }
+        }
+    ]
 }'
 
-if [ ! curl 127.0.0.1 ]; then 
-    echo "failed curl with telemetry enabled"
-    exit 1
-fi
-
-wrk -t22 -c880 -d30s http://127.0.0.1/
-
+wrk http://127.0.0.1:80/
 echo "configuring none tracer"
 
-curl -X PUT 127.0.0.1/settings/telemetry -d '{}'
+curl -X DELETE 127.0.0.1:8080/config/settings/telemetry
+wrk http://127.0.0.1:80/
 
-if [ ! curl 127.0.0.1 ]; then 
-    echo "failed curl with non telemetry"
-    exit 1 
-fi 
+echo "killing unit, starting stock unit"
+kill -9 $UNIT_BG_PID
+sleep 3
 
-wrk -t22 -c880 -d30s http://127.0.0.1/
+unit-clean --control 127.0.0.1:8080 2>/dev/null
+sleep 3
 
+echo "clean configuration"
+
+curl -X PUT 127.0.0.1:8080/config -d '{
+    "listeners": {
+        "*:80": {
+            "pass": "routes"
+        }
+    },
+    "routes": [
+        {
+            "match": {
+                "headers": {
+                    "accept": "*text/html*"
+                }
+            },
+            "action": {
+                "share": "/usr/share/unit/welcome/welcome.html"
+            }
+        },
+        {
+            "action": {
+                "share": "/usr/share/unit/welcome/welcome.md"
+            }
+        }
+    ]
+}'
+
+sleep 3
+wrk http://127.0.0.1:80/
 

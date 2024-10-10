@@ -4,10 +4,11 @@ LABEL org.opencontainers.image.title="Unit (test image)"
 RUN apt update -y && apt upgrade -y
 RUN apt install git curl libssl-dev libpcre2-dev bash libclang-dev \
     build-essential pkg-config ca-certificates python3 python3-pip \
-    python3-dev gdb iproute2 --no-install-recommends cmake -y
+    python3-dev gdb iproute2 unzip --no-install-recommends cmake -y
 
-COPY welcome.* /usr/share/unit/welcome/
-COPY unit-perf.sh /unit-perf.sh
+RUN git clone "https://github.com/wg/wrk/" --branch 4.2.0 \
+    && cd wrk \
+    && make -j22
 
 WORKDIR /root/
 RUN --mount=target=unit-tmp,type=bind,source=unit \
@@ -32,8 +33,7 @@ RUN set -ex \
                 --user=unit \
                 --group=unit \
                 --openssl \
-                --libdir=/usr/lib/$DEB_HOST_MULTIARCH \
-                --otel --debug" \
+                --libdir=/usr/lib/$DEB_HOST_MULTIARCH" \
     && CONFIGURE_ARGS="$CONFIGURE_ARGS_MODULES" \
     && export RUST_VERSION=1.80.0 \
     && export RUSTUP_HOME=/usr/src/unit/rustup \
@@ -54,11 +54,13 @@ RUN set -ex \
     && rustup --version \
     && cargo --version \
     && rustc --version \
-    && ./configure $CONFIGURE_ARGS --cc-opt="$CC_OPT" --ld-opt="$LD_OPT" --modulesdir=/usr/lib/unit/modules \
-    && ./configure wasm-wasi-component \
+    && ./configure $CONFIGURE_ARGS --otel --cc-opt="$CC_OPT" --ld-opt="$LD_OPT" --modulesdir=/usr/lib/unit/modules \
     && make -j $NCPU unitd \
-    && make -j $NCPU wasm-wasi-component-install \
     && install -pm755 build/sbin/unitd /usr/sbin/unitd \
+    && make clean \
+    && ./configure $CONFIGURE_ARGS --cc-opt="$CC_OPT" --ld-opt="$LD_OPT" --modulesdir=/usr/lib/unit/modules \
+    && make -j $NCPU unitd \
+    && install -pm755 build/sbin/unitd /usr/sbin/unitd-clean \
     && cd \
     && rm -rf /usr/src/unit \
     && for f in /usr/sbin/unitd /usr/lib/unit/modules/*.unit.so; do \
@@ -88,12 +90,10 @@ RUN set -ex \
 ENV WASMTIME_BACKTRACE_DETAILS=1
 ENV RUST_BACKTRACE=full
 
-RUN git clone "https://github.com/wg/wrk/" --branch 4.2.0 \
-    && cd wrk \
-    && make -j22 \
-    && cp wrk /
+COPY welcome.* /usr/share/unit/welcome/
+COPY unit-perf.sh /unit-perf.sh
 
 STOPSIGNAL SIGTERM
-
+EXPOSE 80
 EXPOSE 8080
 ENTRYPOINT ["/unit-perf.sh"]
